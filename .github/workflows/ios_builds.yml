@@ -55,7 +55,8 @@ jobs:
       - name: Checkout builder scripts (Vulkan SDK)
         uses: actions/checkout@v6
         with:
-          repository: appsinacup/action_godot_builder
+          # repository: appsinacup/action_godot_builder
+          repository: ${{ github.repository }}
           path: builder_repo
           fetch-depth: 1
 
