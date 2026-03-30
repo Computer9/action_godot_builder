@@ -71,7 +71,7 @@ jobs:
     needs:
       - windows-build
       - web-build
-    uses: ./.github/workflows/release-windows.yml
+    uses: ./.github/workflows/release_windows.yml
     with:
       base-branch: ${{ inputs.base-branch }}
       repo: ${{ inputs.repo }}
