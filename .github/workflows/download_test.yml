@@ -1,0 +1,34 @@
+
+name: 📥 Download Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'downloading url'
+        type: string
+        required: true
+      filename:
+        description: 'save as file name'
+        type: string
+        required: true
+      retention-days:
+        description: 'retention days'
+        type: string
+        default: 1
+
+jobs:
+  Release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Test
+        if: inputs.filename && inputs.url
+        run: |
+          wget -O ${{inputs.filename}} ${{inputs.url}}
+
+      - name: Upload Artifact Test
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{inputs.filename}}
+          path: ${{inputs.url}}
+          retention-days: ${{inputs.retention-days}}
