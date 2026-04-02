@@ -1,0 +1,198 @@
+name: 🔗 Run Builder
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'build platforms'
+        type: choice
+        default: 'all'
+        options: [web,windows,all]
+      targets:
+        description: 'build targets for windows'
+        type: choice
+        default: 'template'
+        options: [template,editor,all]
+      archs:
+        description: 'build archs for windows'
+        type: choice
+        default: "x86_64"
+        options:
+          - "x86"
+          - "x86_64"
+          - "arm64"
+          - "x86,x86_64"
+          - "x86_64,arm64"
+          - "x86,x86_64,arm64"
+      repo:
+        description: 'Repository to use for the build'
+        type: string
+        default: 'godotengine/godot'
+        required: true
+      godot_version:
+        description: 'godot version to use for downloading the repo, [godot version]-stable'
+        type: string
+        default: '4.6.2'
+        required: true
+      accesskit-version:
+        description: 'godot-accesskit-static eversion to use for setup'
+        type: string
+        default: '0.21.2'
+        required: true
+      angle-version:
+        description: 'godot-angle-static eversion to use for setup'
+        type: string
+        default: '6601.2'
+        required: true
+      emsdk-version:
+        description: 'emsdk version to use for setup'
+        type: string
+        default: '4.0.11'
+        required: true
+      release_name:
+        description: 'release name to use for releasing the build, [godot version]-stable/[release name]'
+        type: string
+        required: true
+      module_flags:
+        description: 'Extra module flags, e.g. module_webm_enabled=no'
+        type: string
+        default: ''
+      template_module_flags:
+        description: 'Extra module flags for template build, e.g. disable_3d=yes'
+        type: string
+        default: ''
+      lto:
+        description: 'LTO mode. Options: "none", "thin", "full"'
+        type: choice
+        default: "lto=thin"
+        options:
+          - "lto=none"
+          - "lto=thin"
+          - "lto=full"
+      retention-days:
+        description: 'retention days'
+        type: string
+        default: '7'
+        required: true
+      custom-file-data:
+        description: 'custom file zip base64 data'
+        type: string
+      encrypt-iter:
+        description: 'use encrypt and set aes iter'
+        type: string
+      encrypt-pass:
+        description: 'encrypt key'
+        type: string
+      encrypt-data:
+        description: 'encrypt data'
+        type: string
+
+jobs:
+  windows-build:
+    name: 🏁 Windows
+    if: ${{ inputs.platforms == 'all' || inputs.platforms == 'windows'  }}
+    uses: ./.github/workflows/windows_builder.yml
+    with:
+      repo: ${{ inputs.repo }}
+      tag: ${{inputs.godot_version}}-stable
+      lto: ${{ inputs.lto == 'lto=thin' && 'lto=none' || inputs.lto }}
+      targets: ${{ inputs.targets == 'all' && 'editor,template_release,template_debug' || inputs.targets == 'template' && 'template_release,template_debug' || inputs.targets }}
+      archs: ${{ format('{0},',inputs.archs) }}
+      module_flags: ${{ inputs.module_flags }}
+      template_module_flags: ${{ inputs.template_module_flags }}
+      accesskit-version: ${{ inputs.accesskit-version }}
+      angle-version: ${{ inputs.angle-version }}
+      retention-days: ${{ inputs.retention-days }}
+      encrypt-iter: ${{inputs.encrypt-iter}}
+      encrypt-pass: ${{inputs.encrypt-pass}}
+      encrypt-data: ${{inputs.encrypt-data}}
+      custom-file-data: ${{inputs.custom-file-data}}
+    secrets: inherit
+
+  web-build:
+    if: ${{ (inputs.platforms == 'all' || inputs.platforms == 'web') && inputs.targets != 'editor'}}
+    name: 🌐 Web
+    uses: ./.github/workflows/web_builder.yml
+    with:
+      repo: ${{ inputs.repo }}
+      tag: ${{inputs.godot_version}}-stable
+      lto: ${{ inputs.lto }}
+      module_flags: ${{ inputs.module_flags }}
+      template_module_flags: ${{ inputs.template_module_flags }}
+      emsdk-version: ${{ inputs.emsdk-version }}
+      retention-days: ${{inputs.retention-days}}
+      encrypt-iter: ${{inputs.encrypt-iter}}
+      encrypt-pass: ${{inputs.encrypt-pass}}
+      encrypt-data: ${{inputs.encrypt-data}}
+      custom-file-data: ${{inputs.custom-file-data}}
+    secrets: inherit
+
+  release-windows:
+    name: 🚀 Create Windows Release
+    if: ${{ inputs.platforms == 'windows'  }}
+    permissions:
+      contents: write
+      actions: read
+      packages: write
+    needs:
+      - windows-build
+    uses: ./.github/workflows/release_for_windows_builder.yml
+    with:
+      platforms: ${{ inputs.platforms }}
+      targets: ${{ inputs.targets }}
+      archs: ${{ inputs.archs }}
+      repo: ${{ inputs.repo }}
+      tag: ${{inputs.godot_version}}-stable
+      release_version: ${{inputs.godot_version}}.stable
+      release_name: ${{ inputs.release_name }}
+      lto: ${{ inputs.lto }}
+      module_flags: ${{ inputs.module_flags }}
+      template_module_flags: ${{ inputs.template_module_flags }}
+    secrets: inherit
+  
+  release-web:
+    name: 🚀 Create Web Release
+    if: ${{ inputs.platforms == 'web' && inputs.targets != 'editor' }}
+    permissions:
+      contents: write
+      actions: read
+      packages: write
+    needs:
+      - web-build
+    uses: ./.github/workflows/release_for_windows_builder.yml
+    with:
+      platforms: ${{ inputs.platforms }}
+      targets: ${{ inputs.targets }}
+      archs: ${{ inputs.archs }}
+      repo: ${{ inputs.repo }}
+      tag: ${{inputs.godot_version}}-stable
+      release_version: ${{inputs.godot_version}}.stable
+      release_name: ${{ inputs.release_name }}
+      lto: ${{ inputs.lto }}
+      module_flags: ${{ inputs.module_flags }}
+      template_module_flags: ${{ inputs.template_module_flags }}
+    secrets: inherit
+
+  release-all:
+    name: 🚀 Create All Release
+    if: ${{ inputs.platforms == 'all'  }}
+    permissions:
+      contents: write
+      actions: read
+      packages: write
+    needs:
+      - windows-build
+      - web-build
+    uses: ./.github/workflows/release_for_windows_builder.yml
+    with:
+      platforms: ${{ inputs.platforms }}
+      targets: ${{ inputs.targets }}
+      archs: ${{ inputs.archs }}
+      repo: ${{ inputs.repo }}
+      tag: ${{inputs.godot_version}}-stable
+      release_version: ${{inputs.godot_version}}.stable
+      release_name: ${{ inputs.release_name }}
+      lto: ${{ inputs.lto }}
+      module_flags: ${{ inputs.module_flags }}
+      template_module_flags: ${{ inputs.template_module_flags }}
+    secrets: inherit
+

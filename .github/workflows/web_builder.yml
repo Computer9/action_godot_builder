@@ -1,0 +1,183 @@
+name: 🌐 Web Builds
+on:
+  workflow_call:
+    inputs:
+      base-branch:
+        description: 'Base branch to use for the builds'
+        type: string
+      lto:
+        description: 'LTO mode. Options: "none", "thin", "full"'
+        type: string
+      repo:
+        description: 'Repository to use for the build'
+        default: 'godotengine/godot'
+        type: string
+      tag:
+        description: 'tag to use for the build'
+        type: string
+      module_flags:
+        description: 'Extra module flags, e.g. module_webm_enabled=no'
+        type: string
+      template_module_flags:
+        description: 'Extra module flags for template build, e.g. module_webm_enabled=no'
+        type: string
+      emsdk-version:
+        description: 'emsdk version to use for setup emsdk'
+        type: string
+        default: '4.0.11'
+        required: true
+      retention-days:
+        description: 'retention days'
+        type: string
+        default: '1'
+        required: true
+      custom-file-data:
+        description: 'custom file zip base64 data'
+        type: string
+      encrypt-iter:
+        description: 'use encrypt and set aes iter'
+        type: string
+      encrypt-pass:
+        description: 'aes key'
+        type: string
+      encrypt-data:
+        description: 'encrypt data'
+        type: string
+
+# Global Settings
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Used for the cache key. Add version suffix to force clean build.
+  GODOT_BASE_BRANCH: ${{ inputs.base-branch }}
+  SCONSFLAGS: >- 
+    verbose=yes
+    warnings=extra
+    werror=yes
+    debug_symbols=no
+    optimize=size
+    use_closure_compiler=yes
+    strict_checks=yes
+    ${{ inputs.module_flags }}
+    use_static_cpp=yes
+  EM_VERSION: ${{ inputs.emsdk-version }}
+
+jobs:
+  web-template:
+    runs-on: ubuntu-24.04
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Template w/ threads (target=template_release, threads=yes)
+            target: template_release
+            scons-flags: threads=yes
+
+          - name: Template w/o threads (target=template_release, threads=no)
+            target: template_release
+            scons-flags: threads=no
+
+          - name: Template w/ threads (target=template_debug, threads=yes)
+            target: template_debug
+            scons-flags: threads=yes
+
+          - name: Template w/o threads (target=template_debug, threads=no)
+            target: template_debug
+            scons-flags: threads=no
+          
+          - name: Template w/ threads (target=template_release, threads=yes dlink_enabled=yes)
+            target: template_release
+            scons-flags: threads=yes dlink_enabled=yes
+
+          - name: Template w/o threads (target=template_release, threads=no dlink_enabled=yes)
+            target: template_release
+            scons-flags: threads=no dlink_enabled=yes
+
+          - name: Template w/ threads (target=template_debug, threads=yes dlink_enabled=yes)
+            target: template_debug
+            scons-flags: threads=yes dlink_enabled=yes
+
+          - name: Template w/o threads (target=template_debug, threads=no dlink_enabled=yes)
+            target: template_debug
+            scons-flags: threads=no dlink_enabled=yes
+    env:
+      build-web-out-filename: web-${{ matrix.target }}-${{ matrix.scons-flags }}-${{ inputs.lto }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.repo }}
+          ref: ${{ inputs.tag }}
+          submodules: recursive
+
+      - name: Checkout builder repo (cache purge script)
+        uses: actions/checkout@v6
+        with:
+          path: builder_repo
+          fetch-depth: 1
+
+      - name: Unzip Decrypt
+        if: inputs.encrypt-iter
+        uses: ./builder_repo/.github/actions/unzip-decrypt
+        with: 
+          encrypt-data: ${{format(secrets.ZIPENCDATA,inputs.encrypt-data)}}
+          encrypt-pass: ${{secrets.AESK}}${{inputs.encrypt-pass}}
+          encrypt-iter: ${{inputs.encrypt-iter}}
+          unzip-key: ${{secrets.ZIPK}}${{inputs.encrypt-pass}}
+          unzip-exdir: ../
+          
+      - name: Unzip Custom File
+        if: inputs.custom-file-data
+        uses: ./builder_repo/.github/actions/unzip-decode
+        with: 
+          zip-data: ${{inputs.custom-file-data}}
+          unzip-exdir: ../
+
+      - name: Set up Emscripten latest
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EM_VERSION }}
+          no-cache: true
+
+      - name: Verify Emscripten setup
+        run: |
+          emcc -v
+
+      - name: Restore Godot build cache
+        uses: ./.github/actions/godot-cache-restore
+        with:
+          cache-name: ${{env.build-web-out-filename}}
+        continue-on-error: true
+
+      - name: Setup Python and SCons
+        uses: ./.github/actions/godot-deps
+
+      - name: Compilation
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONSFLAGS }} ${{ matrix.scons-flags }} ${{ inputs.lto }} ${{ inputs.template_module_flags }}
+          platform: web
+          target: ${{ matrix.target }}
+
+      # - name: Checkout builder repo (cache purge script)
+      #   uses: actions/checkout@v6
+      #   with:
+      #     # repository: appsinacup/action_godot_builder
+      #     repository: ${{ github.repository }}
+      #     path: builder_repo
+      #     fetch-depth: 1
+
+      - name: Save Godot build cache
+        uses: ./.github/actions/godot-cache-save
+        with:
+          cache-name: ${{env.build-web-out-filename}}
+          purge-cache-script: builder_repo/misc/scripts/purge_cache.py
+        continue-on-error: true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{env.build-web-out-filename}}
+          path: bin
+          retention-days: ${{inputs.retention-days}}

@@ -1,0 +1,31 @@
+name: Unzip Decode Base64 Data
+description: Unzip Decode Base64 Data
+
+inputs:
+  zip-data:
+    description: zip Data Base64
+    type: string
+  unzip-exdir:
+    description: unzip exdir
+
+runs:
+  using: composite
+  steps:
+    - name: Base64 Decrypt
+      shell: sh
+      run: |
+        # base64 input.zip | tr -d '\n' > input-encode.zip
+        echo "${{inputs.zip-data}}" | base64 -d > input-base64-decode.zip
+        if [ $? -ne 0 ]; then
+            exit 101
+        fi
+        unzip -P "${{inputs.unzip-key}}" -o input-base64-decode.zip -d ${{inputs.unzip-exdir||'./'}}
+        if [ $? -ne 0 ]; then
+            rm input-base64-decode.zip
+            ls -1 ./
+            ls -1 ${{inputs.unzip-exdir||'./'}}
+            exit 102
+        fi
+        rm input-base64-decode.zip
+        ls -1 ./
+        ls -1 ${{inputs.unzip-exdir||'./'}}
