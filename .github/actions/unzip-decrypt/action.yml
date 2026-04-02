@@ -1,0 +1,43 @@
+name: Unzip Decrypt Base64 Data
+description: Unzip Decrypt Base64 Data
+
+inputs:
+  encrypt-data:
+    description: encrypt Data Base64
+    type: string
+  encrypt-pass:
+    description: encrypt passwod
+    type: string
+  encrypt-iter:
+    description: encrypt iter
+    type: string
+  unzip-pass:
+    description: unzip passwod
+    type: string
+
+runs:
+  using: composite
+  steps:
+    - name: Unzip Decrypt
+      shell: sh
+      run: |
+        # openssl enc -aes-256-cfb -salt -iter 10000 -pass pass:"123456789" -in input.zip -A -a -out encrypted_file.txt
+        # echo "encrypt data base64" | openssl enc -d -aes-256-cfb -salt -iter 10000 -pass pass:"123456789" -A -a -out input-decrypted.zip
+        echo "${{inputs.encrypt-data}}" | openssl enc -d -aes-256-cfb -salt -iter "${{inputs.encrypt-iter}}" -pass pass:"${{ inputs.encrypt-pass }}" -A -a -out ./input-base64-decrypted.zip
+        if [ $? -ne 0 ]; then
+            exit 101
+        fi
+
+        if [! -f ./input-base64-decrypted.zip ]; then
+            ls -1 ./
+            exit 102
+        fi
+        
+        unzip -P "${{inputs.unzip-pass}}" -o ./input-base64-decrypted.zip
+        if [ $? -ne 0 ]; then
+            rm ./input-base64-decrypted.zip
+            ls -1 ./
+            exit 103
+        fi
+        rm ./input-base64-decrypted.zip
+        ls -1 ./
