@@ -1,5 +1,17 @@
 # Godot Builder Action
 
+## Dependencies
+
+| [Godot](https://github.com/godotengine/godot) |[Accesskit](https://github.com/godotengine/godot-accesskit-c-static) | [Angle](https://github.com/godotengine/godot-angle-static) | [EMSDK](https://github.com/emscripten-core/emsdk)|
+| :----:| :----: | :----: | :----:|
+| 4.6.1 | 0.18.0 | 6601.2 | 4.0.11 |
+| 4.6.2 | 0.21.2 | 6601.2 | 4.0.11 |
+
+
+
+
+## Fork from [appsinacup/action_godot_builder](https://github.com/appsinacup/action_godot_builder)
+
 |[Website](https://appsinacup.com)|[Discord](https://discord.gg/v649emcpAu)|
 |-|-|
 
