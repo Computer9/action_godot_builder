@@ -1,0 +1,277 @@
+name: 🏁 Windows No Mono Builds
+on:
+  workflow_call:
+    inputs:
+      targets:
+        description: 'build targets, e.g. editor,template_release,template_debug'
+        type: string
+      archs:
+        description: 'build archs, e.g. x86,x86_64,arm64'
+        type: string
+      base-branch:
+        description: 'Base branch to use for the builds'
+        type: string
+      lto:
+        description: 'LTO mode. Options: "none", "full"'
+        type: string
+      repo:
+        description: 'Repository to use for the build'
+        type: string
+      tag:
+        description: 'tag to use for the build'
+        type: string
+      module_flags:
+        description: 'Extra module flags, e.g. module_webm_enabled=no'
+        type: string
+      template_module_flags:
+        description: 'Extra module flags for template build, e.g. module_webm_enabled=no'
+        type: string
+      accesskit-version:
+        description: 'godot-accesskit-static eversion to use for setup'
+        type: string
+        default: '0.21.2'
+        required: true
+      angle-version:
+        description: 'godot-angle-static eversion to use for setup'
+        type: string
+        default: '6601.2'
+        required: true
+      retention-days:
+        description: 'retention days'
+        type: string
+        default: '1'
+        required: true
+      custom-file-data:
+        description: 'custom file zip base64 data'
+        type: string
+      encrypt-iter:
+        description: 'use encrypt and set aes iter'
+        type: string
+      encrypt-pass:
+        description: 'encrypt passwod'
+        type: string
+      encrypt-data:
+        description: 'encrypt data'
+        type: string
+      save-cache:
+        description: 'Save Cache yes or no'
+        type: string
+        
+
+# Global Settings
+# SCONS_CACHE for windows must be set in the build environment
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Used for the cache key. Add version suffix to force clean build.
+  GODOT_BASE_BRANCH: ${{ inputs.base-branch }}
+  SCONSFLAGS: >- 
+     verbose=yes
+     warnings=extra
+     d3d12=yes
+     strict_checks=yes
+     debug_symbols=no
+     ${{ inputs.module_flags }}
+     use_static_cpp=yes
+     "angle_libs=${{ github.workspace }}/"
+     "accesskit_sdk_path=${{ github.workspace }}/accesskit-c-${{inputs.accesskit-version}}/"
+  SCONS_CACHE_MSVC_CONFIG: true
+
+jobs:
+  build-windows:
+    # Windows 10 with latest image
+    runs-on: windows-latest
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Editor (target=editor, arch=x86_64)
+            target: editor
+            arch: x86_64
+            scons-flags: production=yes
+
+          - name: Editor (target=editor, arch=arm64)
+            target: editor
+            arch: arm64
+            scons-flags: production=yes
+
+          - name: Template (target=template_release, arch=x86_64)
+            target: template_release
+            arch: x86_64
+            scons-flags: production=yes
+          
+          - name: Template (target=template_release, arch=x86)
+            target: template_release
+            arch: x86
+            scons-flags: production=yes
+          
+          - name: Template (target=template_release, arch=arm64)
+            target: template_release
+            arch: arm64
+            scons-flags: production=yes
+          
+          - name: Template (target=template_debug, arch=x86_64)
+            target: template_debug
+            arch: x86_64
+            scons-flags: ''
+          
+          - name: Template (target=template_debug, arch=x86)
+            target: template_debug
+            arch: x86
+            scons-flags: ''
+          
+          - name: Template (target=template_debug, arch=arm64)
+            target: template_debug
+            arch: arm64
+            scons-flags: ''
+
+    env:
+      build-windows-can-run: ${{ contains(inputs.archs, format('{0},',matrix.arch)) && contains(inputs.targets, matrix.target) || '' }}
+      build-windows-out-filename: windows-${{ matrix.target }}-${{ matrix.arch }}-${{ inputs.lto }}
+
+    steps:
+      - name: Checkout
+        if: env.build-windows-can-run
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.repo }}
+          ref: ${{ inputs.tag }}
+          submodules: recursive
+
+      - name: Checkout builder repo (cache purge script)
+        if: env.build-windows-can-run
+        uses: actions/checkout@v6
+        with:
+          path: builder_repo
+          fetch-depth: 1
+
+      - name: Unzip Decrypt
+        if: inputs.encrypt-iter && env.build-windows-can-run
+        uses: ./builder_repo/.github/actions/unzip-decrypt
+        with: 
+          encrypt-data: ${{secrets.ZIPENCDATA}}${{inputs.encrypt-data}}
+          encrypt-pass: ${{secrets.AESK}}${{inputs.encrypt-pass}}
+          encrypt-iter: ${{inputs.encrypt-iter}}
+          unzip-pass: ${{secrets.ZIPK}}${{inputs.encrypt-pass}}
+          
+      - name: Unzip Custom File
+        if: inputs.custom-file-data && env.build-windows-can-run
+        uses: ./builder_repo/.github/actions/unzip-decode
+        with: 
+          zip-data: ${{inputs.custom-file-data}}
+          unzip-pass: ${{inputs.encrypt-pass}}
+
+      - name: Restore Godot build cache
+        if: env.build-windows-can-run
+        uses: ./.github/actions/godot-cache-restore
+        with:
+          cache-name: ${{ env.build-windows-out-filename }}
+        continue-on-error: true
+
+      - name: Setup Python and SCons
+        if: env.build-windows-can-run        
+        uses: ./.github/actions/godot-deps
+
+      - name: Download Direct3D 12 SDK components
+        if: env.build-windows-can-run
+        run: python ./misc/scripts/install_d3d12_sdk_windows.py
+
+      - name: Download pre-built ANGLE static libraries (x86_64)
+        if: matrix.arch == 'x86_64' && env.build-windows-can-run
+        uses: dsaltares/fetch-gh-release-asset@1.1.2
+        with:
+          repo: godotengine/godot-angle-static
+          version: tags/chromium/${{inputs.angle-version}}
+          file: godot-angle-static-x86_64-msvc-release.zip
+          target: angle/angle_x86_64.zip
+
+      - name: Extract pre-built ANGLE static libraries (x86_64)
+        if: matrix.arch == 'x86_64' && env.build-windows-can-run
+        run: Expand-Archive -Force angle/angle_x86_64.zip ${{ github.workspace }}/
+
+      - name: Download pre-built ANGLE static libraries (x86_32)
+        if: matrix.arch == 'x86' && env.build-windows-can-run
+        uses: dsaltares/fetch-gh-release-asset@1.1.2
+        with:
+          repo: godotengine/godot-angle-static
+          version: tags/chromium/${{inputs.angle-version}}
+          file: godot-angle-static-x86_32-msvc-release.zip
+          target: angle/angle_x86_32.zip
+
+      - name: Extract pre-built ANGLE static libraries (x86_32)
+        if: matrix.arch == 'x86' && env.build-windows-can-run
+        run: Expand-Archive -Force angle/angle_x86_32.zip ${{ github.workspace }}/
+
+      - name: Download pre-built ANGLE static libraries (arm64)
+        if: matrix.arch == 'arm64' && env.build-windows-can-run
+        uses: dsaltares/fetch-gh-release-asset@1.1.2
+        with:
+          repo: godotengine/godot-angle-static
+          version: tags/chromium/${{inputs.angle-version}}
+          file: godot-angle-static-arm64-msvc-release.zip
+          target: angle/angle_arm64.zip
+
+      - name: Extract pre-built ANGLE static libraries (arm64)
+        if: matrix.arch == 'arm64' && env.build-windows-can-run
+        run: Expand-Archive -Force angle/angle_arm64.zip ${{ github.workspace }}/
+
+      - name: Download pre-built AccessKit
+        if: env.build-windows-can-run
+        uses: dsaltares/fetch-gh-release-asset@1.1.2
+        with:
+          repo: AccessKit/accesskit-c
+          version: tags/${{inputs.accesskit-version}}
+          file: accesskit-c-${{inputs.accesskit-version}}.zip
+          target: accesskit-c-${{inputs.accesskit-version}}/accesskit_c.zip
+
+      - name: Extract pre-built AccessKit
+        if: env.build-windows-can-run
+        run: unzip -o accesskit-c-${{inputs.accesskit-version}}/accesskit_c.zip
+
+# Compilation
+
+      - name: Compilation (editor)
+        if: matrix.target == 'editor' && env.build-windows-can-run
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONSFLAGS }} ${{ matrix.scons-flags }} ${{ inputs.module_flags }} ${{ inputs.lto }} arch=${{ matrix.arch }}
+          platform: windows
+          target: ${{ matrix.target }}
+
+      - name: Compilation (template)
+        if: matrix.target != 'editor' && env.build-windows-can-run
+        uses: ./.github/actions/godot-build
+        with:
+          scons-flags: ${{ env.SCONSFLAGS }} ${{ matrix.scons-flags }} ${{ inputs.template_module_flags }} ${{ inputs.lto }} arch=${{ matrix.arch }}
+          platform: windows
+          target: ${{ matrix.target }}
+
+      # - name: Checkout builder repo (cache purge script)
+      #   if: env.build-windows-can-run
+      #   uses: actions/checkout@v6
+      #   with:
+      #     # repository: appsinacup/action_godot_builder
+      #     repository: ${{ github.repository }}
+      #     path: builder_repo
+      #     fetch-depth: 1
+
+      - name: Save Godot build cache
+        if: env.build-windows-can-run && inputs.save-cache != 'no'
+        uses: ./.github/actions/godot-cache-save
+        with:
+          cache-name: ${{ env.build-windows-out-filename }}
+          purge-cache-script: builder_repo/misc/scripts/purge_cache.py
+        continue-on-error: true
+
+      - name: Prepare artifact
+        if: env.build-windows-can-run
+        run: |
+          Remove-Item bin/* -Include *.exp,*.lib,*.pdb -Force
+
+      - name: Upload artifact
+        if: env.build-windows-can-run
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.build-windows-out-filename }}
+          path: bin
+          retention-days: ${{inputs.retention-days}}

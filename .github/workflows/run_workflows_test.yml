@@ -1,0 +1,60 @@
+
+name: 🔗 Run Workflow Call Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      input1:
+        description: 'input1'
+        type: string
+      input2:
+        description: 'input2'
+        type: string
+      input3:
+        description: 'input3'
+        type: string
+      input4:
+        description: 'input4'
+        type: string
+      input5:
+        description: 'input5'
+        type: string
+      input6:
+        description: 'input6'
+        type: string
+      input7:
+        description: 'input7'
+        type: string
+      input8:
+        description: 'input8'
+        type: string
+      input9:
+        description: 'input9'
+        type: string
+      input10:
+        description: 'input10'
+        type: string
+      input11:
+        description: 'input11'
+        type: string
+      input12:
+        description: 'input12'
+        type: string
+      input13:
+        description: 'input13'
+        type: string
+      input14:
+        description: 'input14'
+        type: string
+      input15:
+        description: 'input15'
+        type: string
+      input16:
+        description: 'input16'
+        type: string
+
+jobs:
+  windows-build:
+    name: 🏁 Windows
+    uses: ./.github/workflows/workflows_test.yml
+    secrets: inherit
