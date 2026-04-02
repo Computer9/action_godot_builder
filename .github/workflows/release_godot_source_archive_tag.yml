@@ -1,0 +1,36 @@
+
+name: 🚀 Release Godot Source Archive
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'tag to use for downloading the repo, e.g. 4.6.1-stable'
+        type: string
+        required: true
+
+jobs:
+  Release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Godot Source Archive
+        run: |
+          wget https://github.com/godotengine/godot/releases/download/${{inputs.tag}}/godot-${{inputs.tag}}.tar.xz
+          wget https://github.com/godotengine/godot/releases/download/${{inputs.tag}}/godot-${{inputs.tag}}.tar.xz.sha256
+          
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: godot-${{inputs.tag}}-source
+          name: Godot Engine ${{inputs.tag}}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            godot-${{inputs.tag}}.tar.xz
+            godot-${{inputs.tag}}.tar.xz.sha256
+          
+        # env:
+        #   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

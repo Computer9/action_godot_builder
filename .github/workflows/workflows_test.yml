@@ -1,0 +1,16 @@
+
+name: 📞 Workflow Call Test
+
+on: [workflow_call]
+  
+
+jobs:
+  call-workflow:
+    runs-on: windows-latest
+    steps:
+      - name: 🏁 Echo
+        run: echo "${{github.event.inputs.input1}}"
+    
+
+    
+

@@ -21,14 +21,48 @@ on:
       template_module_flags:
         description: 'Extra module flags for template build, e.g. module_webm_enabled=no'
         type: string
+      emsdk-version:
+        description: 'emsdk version to use for setup emsdk'
+        type: string
+        default: '4.0.11'
+        required: true
+      retention-days:
+        description: 'retention days'
+        type: string
+        default: '1'
+        required: true
+      custom-file-data:
+        description: 'custom file zip base64 data'
+        type: string
+      encrypt-iter:
+        description: 'use encrypt and set aes iter'
+        type: string
+      encrypt-pass:
+        description: 'encrypt passwod'
+        type: string
+      encrypt-data:
+        description: 'encrypt data'
+        type: string
+      save-cache:
+        description: 'Save Cache yes or no'
+        type: string
 
 # Global Settings
 env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   # Used for the cache key. Add version suffix to force clean build.
   GODOT_BASE_BRANCH: ${{ inputs.base-branch }}
-  SCONSFLAGS: verbose=yes warnings=extra werror=yes debug_symbols=no optimize=size use_closure_compiler=yes strict_checks=yes ${{ inputs.module_flags }} use_static_cpp=yes
-  EM_VERSION: 4.0.11
+  SCONSFLAGS: >- 
+    verbose=yes
+    warnings=extra
+    werror=yes
+    debug_symbols=no
+    optimize=size
+    use_closure_compiler=yes
+    strict_checks=yes
+    ${{ inputs.module_flags }}
+    use_static_cpp=yes
+  EM_VERSION: ${{ inputs.emsdk-version }}
 
 jobs:
   web-template:
@@ -40,11 +74,11 @@ jobs:
         include:
           - name: Template w/ threads (target=template_release, threads=yes)
             target: template_release
-            scons-flags: threads=yes
+            scons-flags: threads=yes production=yes
 
           - name: Template w/o threads (target=template_release, threads=no)
             target: template_release
-            scons-flags: threads=no
+            scons-flags: threads=no production=yes
 
           - name: Template w/ threads (target=template_debug, threads=yes)
             target: template_debug
@@ -56,11 +90,11 @@ jobs:
           
           - name: Template w/ threads (target=template_release, threads=yes dlink_enabled=yes)
             target: template_release
-            scons-flags: threads=yes dlink_enabled=yes
+            scons-flags: threads=yes dlink_enabled=yes production=yes
 
           - name: Template w/o threads (target=template_release, threads=no dlink_enabled=yes)
             target: template_release
-            scons-flags: threads=no dlink_enabled=yes
+            scons-flags: threads=no dlink_enabled=yes production=yes
 
           - name: Template w/ threads (target=template_debug, threads=yes dlink_enabled=yes)
             target: template_debug
@@ -69,6 +103,9 @@ jobs:
           - name: Template w/o threads (target=template_debug, threads=no dlink_enabled=yes)
             target: template_debug
             scons-flags: threads=no dlink_enabled=yes
+    env:
+      build-web-out-filename: web-${{ matrix.target }}-${{ matrix.scons-flags }}-${{ inputs.lto }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -76,6 +113,28 @@ jobs:
           repository: ${{ inputs.repo }}
           ref: ${{ inputs.tag }}
           submodules: recursive
+
+      - name: Checkout builder repo (cache purge script)
+        uses: actions/checkout@v6
+        with:
+          path: builder_repo
+          fetch-depth: 1
+
+      - name: Unzip Decrypt
+        if: inputs.encrypt-iter
+        uses: ./builder_repo/.github/actions/unzip-decrypt
+        with: 
+          encrypt-data: ${{secrets.ZIPENCDATA}}${{inputs.encrypt-data}}
+          encrypt-pass: ${{secrets.AESK}}${{inputs.encrypt-pass}}
+          encrypt-iter: ${{inputs.encrypt-iter}}
+          unzip-pass: ${{secrets.ZIPK}}${{inputs.encrypt-pass}}
+          
+      - name: Unzip Custom File
+        if: inputs.custom-file-data
+        uses: ./builder_repo/.github/actions/unzip-decode
+        with: 
+          zip-data: ${{inputs.custom-file-data}}
+          unzip-pass: ${{inputs.encrypt-pass}}
 
       - name: Set up Emscripten latest
         uses: mymindstorm/setup-emsdk@v14
@@ -90,7 +149,7 @@ jobs:
       - name: Restore Godot build cache
         uses: ./.github/actions/godot-cache-restore
         with:
-          cache-name: web-${{ matrix.target }}-${{ matrix.scons-flags }}-${{ inputs.lto }}
+          cache-name: ${{env.build-web-out-filename}}
         continue-on-error: true
 
       - name: Setup Python and SCons
@@ -99,26 +158,29 @@ jobs:
       - name: Compilation
         uses: ./.github/actions/godot-build
         with:
-          scons-flags: ${{ env.SCONSFLAGS }} ${{ matrix.scons-flags }} ${{ inputs.lto }} ${{ inputs.template_module_flags }}
+          scons-flags: ${{ env.SCONSFLAGS }} ${{ matrix.scons-flags }} ${{ inputs.template_module_flags }} ${{ inputs.lto }}
           platform: web
           target: ${{ matrix.target }}
 
-      - name: Checkout builder repo (cache purge script)
-        uses: actions/checkout@v6
-        with:
-          repository: appsinacup/action_godot_builder
-          path: builder_repo
-          fetch-depth: 1
+      # - name: Checkout builder repo (cache purge script)
+      #   uses: actions/checkout@v6
+      #   with:
+      #     # repository: appsinacup/action_godot_builder
+      #     repository: ${{ github.repository }}
+      #     path: builder_repo
+      #     fetch-depth: 1
 
       - name: Save Godot build cache
+        if: inputs.save-cache != 'no'
         uses: ./.github/actions/godot-cache-save
         with:
-          cache-name: web-${{ matrix.target }}-${{ matrix.scons-flags }}-${{ inputs.lto }}
+          cache-name: ${{env.build-web-out-filename}}
           purge-cache-script: builder_repo/misc/scripts/purge_cache.py
         continue-on-error: true
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: web-${{ matrix.target }}-${{ matrix.scons-flags }}-${{ inputs.lto }}
+          name: ${{env.build-web-out-filename}}
           path: bin
+          retention-days: ${{inputs.retention-days}}
