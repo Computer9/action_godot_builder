@@ -12,6 +12,11 @@ on:
         description: 'save as file name'
         type: string
         required: true
+      hash-only:
+        description: 'make hash file only'
+        type: choice
+        default: 'false'
+        options: [true,false]
       retention-days:
         description: 'retention days'
         type: string
@@ -22,12 +27,33 @@ jobs:
   Download-Test:
     runs-on: ubuntu-latest
     steps:
-      - name: Download
+      - name: Download (${{inputs.filename}})
         if: inputs.filename && inputs.url
         run: |
-          wget -O ${{inputs.filename}} ${{inputs.url}}
+          wget -O "${{inputs.filename}}" "${{inputs.url}}"
+        
+      - name: Calculate SHA256 and SHA1
+        if: inputs.hash-only == 'true'
+        id: hash_calc
+        run: |
+          SHA256=$(sha256sum "${{inputs.filename}}" | awk '{print $1}')
+          echo "Calculated SHA256: $SHA256"
 
-      - name: Upload Artifact
+          echo "Filename: ${{inputs.filename}}" > "$SHA256.sha256"
+          echo "SHA256: $SHA256" >> "$SHA256.sha256"
+
+          echo "sha256file=$SHA256.sha256" >> $GITHUB_OUTPUT
+
+      - name: Upload Artifact HashFile
+        if: inputs.hash-only == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{inputs.filename}}-${{steps.hash_calc.outputs.sha256file}}
+          path: ${{steps.hash_calc.outputs.sha256file}}
+          retention-days: ${{inputs.retention-days}}
+
+      - name: Upload Artifact File
+        if: inputs.hash-only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{inputs.filename}}
